@@ -151,15 +151,30 @@ public class StovePotsRenderer : IRenderer
             return;
         }
 
-        // Idle: normal placed pot. Cooking: open pot body + separate lid for bubble animation.
+        // Idle pot, or open-fire spit item (meat/fish). Cooking pot uses lid path below.
         if (!activelyCooking)
         {
-            MeshData potMesh;
-            if (stack.Class == EnumItemClass.Block)
-                capi.Tesselator.TesselateBlock(stack.Block, out potMesh);
+            MeshData mesh;
+            if (stack.Class == EnumItemClass.Item)
+            {
+                capi.Tesselator.TesselateItem(stack.Item, out mesh);
+                // FirepitContentsRenderer uses inFirePitProps.Transform; shrink further for burner pads.
+                InFirePitProps? props = BlockEntityFirepit.GetRenderProps(stack);
+                if (props?.Transform != null)
+                {
+                    mesh.ModelTransform(props.Transform);
+                    mesh.Scale(Vec3f.Zero, 0.55f, 0.55f, 0.55f);
+                }
+                else
+                {
+                    mesh.Scale(Vec3f.Zero, 0.25f, 0.25f, 0.25f);
+                }
+            }
             else
-                capi.Tesselator.TesselateItem(stack.Item, out potMesh);
-            vis.PotRef = capi.Render.UploadMultiTextureMesh(potMesh);
+            {
+                capi.Tesselator.TesselateBlock(stack.Block, out mesh);
+            }
+            vis.PotRef = capi.Render.UploadMultiTextureMesh(mesh);
             return;
         }
 

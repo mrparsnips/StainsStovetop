@@ -321,13 +321,13 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         int box = blockSel.SelectionBoxIndex;
         ItemSlot hand = byPlayer.InventoryManager.ActiveHotbarSlot;
 
-        // Burner pads: place pot in-world, otherwise open firepit GUI for that burner (door stays shut).
+        // Burner pads: place pot/food in-world, otherwise open cooking GUI for that burner (door stays shut).
         if (box >= 1 && box <= InventoryStainsStove.BurnerCount)
         {
             int burner = box - 1;
             ItemSlot potSlot = inventory.PotSlot(burner);
 
-            // Sneak + empty hand: take pot / finished meal off the burner
+            // Sneak + empty hand: take pot / food off the burner
             if (hand.Empty && byPlayer.Entity.Controls.ShiftKey)
             {
                 if (TryTakePot(byPlayer, burner))
@@ -338,6 +338,26 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
                 return true;
             }
 
+            // Firepit exact: Shift + MeltingPoint > 0 → put into input slot.
+            // Source: BlockFirepit.OnBlockInteractStart (shift branch).
+            if (!hand.Empty && byPlayer.Entity.Controls.ShiftKey && potSlot.Empty)
+            {
+                CombustibleProperties? combustibleProps =
+                    hand.Itemstack!.Collectible.GetCombustibleProperties(Api.World, hand.Itemstack, null);
+                if (combustibleProps != null && combustibleProps.MeltingPoint > 0)
+                {
+                    var op = new ItemStackMoveOperation(Api.World, EnumMouseButton.Left, 0, EnumMergePriority.DirectMerge, 1);
+                    hand.TryPutInto(potSlot, ref op);
+                    if (op.MovedQuantity > 0)
+                    {
+                        (byPlayer as IClientPlayer)?.TriggerFpAnimation(EnumHandInteract.HeldItemInteract);
+                        MarkDirty(true);
+                        return true;
+                    }
+                }
+            }
+
+            // Non-shift: place cooking pot on burner (shipped behavior).
             if (!hand.Empty && IsCookingPot(hand.Itemstack) && potSlot.Empty)
             {
                 if (hand.TryPutInto(Api.World, potSlot) > 0)
@@ -359,8 +379,7 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     }
 
     /// <summary>
-    /// Take pot/cooked meal from a burner into the player inventory.
-    /// Prefers the pot slot; if empty, takes a cooked container from the output (vanilla firepit finish state).
+    /// Take pot/cooked meal/spit food from a burner into the player inventory.
     /// </summary>
     private bool TryTakePot(IPlayer byPlayer, int burner)
     {
@@ -368,9 +387,9 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         ItemSlot outSlot = inventory.OutputSlot(burner);
         ItemSlot? takeFrom = null;
 
-        if (!potSlot.Empty && IsCookingVessel(potSlot.Itemstack))
+        if (!potSlot.Empty)
             takeFrom = potSlot;
-        else if (!outSlot.Empty && IsCookingVessel(outSlot.Itemstack))
+        else if (!outSlot.Empty)
             takeFrom = outSlot;
 
         if (takeFrom == null) return false;
@@ -474,8 +493,7 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     }
 
     /// <summary>
-    /// Drive per-burner pot/meal renderers. Shows pot while cooking; cooked meal from output when finished
-    /// (vanilla firepit keeps the finished pot visible via PotInFirepitRenderer forOutputSlot).
+    /// Drive per-burner pot/meal/spit renderers.
     /// </summary>
     private void UpdatePotRenderers()
     {
@@ -488,21 +506,32 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
 
             ItemStack? show = null;
             bool inOutput = false;
+            bool isPot = false;
 
             if (output?.Collectible is BlockCookedContainerBase)
             {
                 show = output;
                 inOutput = true;
+                isPot = true;
             }
             else if (pot != null && (IsCookingPot(pot) || pot.Collectible is BlockCookedContainerBase))
             {
                 show = pot;
-                inOutput = false;
+                isPot = true;
+            }
+            else if (output != null)
+            {
+                show = output;
+                inOutput = true;
+            }
+            else if (pot != null)
+            {
+                show = pot;
             }
 
-            bool activelyCooking = !inOutput && show != null && IsBurning && HasCookingIngredients(b);
+            bool activelyCooking = isPot && !inOutput && show != null && IsBurning && HasCookingIngredients(b);
             float temp = show == null ? 20 : GetBurnerTemp(b);
-            if (!activelyCooking)
+            if (isPot && !activelyCooking)
                 temp = 20;
 
             potsRenderer.SetBurnerContents(b, show, inOutput, temp, activelyCooking);

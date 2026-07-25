@@ -72,6 +72,13 @@ public class BlockStainsStove : Block, IIgnitable
             },
             new WorldInteraction
             {
+                // Firepit: Shift + MeltingPoint > 0 places into input (BlockFirepit.OnBlockInteractStart).
+                ActionLangCode = "stainsstovetop:blockhelp-placemeat",
+                MouseButton = EnumMouseButton.Right,
+                HotKeyCode = "sneak"
+            },
+            new WorldInteraction
+            {
                 ActionLangCode = "stainsstovetop:blockhelp-cook",
                 MouseButton = EnumMouseButton.Right
             },

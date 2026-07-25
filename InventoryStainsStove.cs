@@ -62,10 +62,13 @@ public class InventoryStainsStove : InventoryBase
     {
         if (i == 0) return new ItemSlotCoalFuel(this);
 
+        int burner = (i - 1) / SlotsPerBurner;
         int local = (i - 1) % SlotsPerBurner;
+        // Firepit input is ItemSlotInput(inventory, outputSlotId) — CanHold is output-stack
+        // compat only, not pot filter. Source: InventorySmelting / ItemSlotInput (VSSurvivalMod).
         return local switch
         {
-            0 => new ItemSlotStovePot(this),
+            0 => new ItemSlotInput(this, OutputIndex(burner)),
             1 => new ItemSlotOutput(this),
             _ => new ItemSlotWatertight(this, 6f)
         };
