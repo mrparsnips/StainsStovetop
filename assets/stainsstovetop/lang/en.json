@@ -1,0 +1,19 @@
+﻿{
+  "block-stove": "Stain's Stovetop",
+  "block-stove-north": "Stain's Stovetop",
+  "block-stove-east": "Stain's Stovetop",
+  "block-stove-south": "Stain's Stovetop",
+  "block-stove-west": "Stain's Stovetop",
+  "dialog-title": "Stove",
+  "blockhelp-ignite": "Ignite (needs fuel)",
+  "blockhelp-placepot": "Place cooking pot",
+  "blockhelp-cook": "Open cooking",
+  "blockhelp-takepot": "Take pot",
+  "blockhelp-fueldoor": "Open firebox",
+  "info-temp": "Temperature: {0}°C",
+  "info-burning": "Burning",
+  "info-smoldering": "Hot enough to re-ignite fuel",
+  "info-fuel": "Fuel: {0}",
+  "msg-need-cooking-pot": "Use a fired cooking pot on a burner (not a bowl).",
+  "desc-fuels": "Accepts charcoal, brown coal, and black coal."
+}

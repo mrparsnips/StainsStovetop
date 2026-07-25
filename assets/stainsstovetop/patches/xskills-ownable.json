@@ -1,0 +1,16 @@
+[
+  {
+    "dependsOn": [{ "modid": "xskills" }],
+    "file": "stainsstovetop:blocktypes/stove",
+    "op": "addmerge",
+    "path": "/entityBehaviors",
+    "value": [{ "name": "XskillsOwnable" }]
+  },
+  {
+    "dependsOn": [{ "modid": "xskillsfork" }],
+    "file": "stainsstovetop:blocktypes/stove",
+    "op": "addmerge",
+    "path": "/entityBehaviors",
+    "value": [{ "name": "XskillsOwnable" }]
+  }
+]

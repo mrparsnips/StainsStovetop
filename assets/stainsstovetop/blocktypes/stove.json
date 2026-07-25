@@ -1,0 +1,71 @@
+{
+  "code": "stove",
+  "class": "BlockStainsStove",
+  "entityClass": "BlockEntityStainsStove",
+  "creativeinventory": {
+    "general": ["*-east"],
+    "decorative": ["*-east"]
+  },
+  "drawtype": "json",
+  "variantgroups": [
+    { "code": "side", "loadFromProperties": "abstract/horizontalorientation" }
+  ],
+  "behaviors": [
+    { "name": "HorizontalOrientable" }
+  ],
+  "shapebytype": {
+    "*-north": { "base": "block/stove", "rotateY": 0 },
+    "*-east": { "base": "block/stove", "rotateY": 270 },
+    "*-south": { "base": "block/stove", "rotateY": 180 },
+    "*-west": { "base": "block/stove", "rotateY": 90 }
+  },
+  "textures": {
+    "smoky": { "base": "game:block/glass/smoky" },
+    "molybdochalkos6": { "base": "game:block/metal/ingot/molybdochalkos" },
+    "blackbronze": { "base": "game:block/metal/plate/blackbronze" },
+    "molybdochalkos": { "base": "game:block/metal/plate/molybdochalkos" },
+    "molybdochalkos4": { "base": "game:block/metal/sheet/molybdochalkos4" },
+    "ember": { "base": "game:block/coal/ember" },
+    "ashes": { "base": "game:block/wood/firepit/ground" },
+    "hay": { "base": "game:block/hay/normal-top" },
+    "singlehay": { "base": "game:block/wood/trough/large/singlehay" },
+    "birch": { "base": "game:block/wood/debarked/birch" },
+    "walnut-h": { "base": "game:block/wood/bark/walnut-h" },
+    "fire": { "base": "game:block/wood/firepit/fire" }
+  },
+  "attributes": {
+    "flammability": 0
+  },
+  "attributesByType": {
+    "*-north": { "facing": 0, "partialSelection": true },
+    "*-east": { "facing": 3, "partialSelection": true },
+    "*-south": { "facing": 2, "partialSelection": true },
+    "*-west": { "facing": 1, "partialSelection": true }
+  },
+  "sidesolid": { "all": false },
+  "sideopaque": { "all": false },
+  "sideAo": { "all": false },
+  "resistance": 3.5,
+  "lightAbsorption": 0,
+  "blockmaterial": "Metal",
+  "heldTpIdleAnimation": "holdunderarm",
+  "collisionselectionboxes": [
+    { "x1": 0, "y1": 0, "z1": 0, "x2": 1, "y2": 0.9375, "z2": 1 },
+    {
+      "x1": 0.09375, "y1": 0.9375, "z1": 0.0625, "x2": 0.46875, "y2": 1.05, "z2": 0.4375,
+      "rotateYByType": { "*-north": 90, "*-east": 0, "*-west": 180, "*-south": 270 }
+    },
+    {
+      "x1": 0.53125, "y1": 0.9375, "z1": 0.0625, "x2": 0.9375, "y2": 1.05, "z2": 0.4375,
+      "rotateYByType": { "*-north": 90, "*-east": 0, "*-west": 180, "*-south": 270 }
+    },
+    {
+      "x1": 0.09375, "y1": 0.9375, "z1": 0.5625, "x2": 0.46875, "y2": 1.05, "z2": 0.9375,
+      "rotateYByType": { "*-north": 90, "*-east": 0, "*-west": 180, "*-south": 270 }
+    },
+    {
+      "x1": 0.53125, "y1": 0.9375, "z1": 0.5625, "x2": 0.9375, "y2": 1.05, "z2": 0.9375,
+      "rotateYByType": { "*-north": 90, "*-east": 0, "*-west": 180, "*-south": 270 }
+    }
+  ]
+}

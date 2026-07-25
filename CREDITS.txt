@@ -1,0 +1,2 @@
+﻿Stove block model/shapes adapted from Kevin''s Furniture (Kevin C.) with credit.
+Original mod: https://mods.vintagestory.at/kevinsfurniture

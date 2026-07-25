@@ -1,0 +1,14 @@
+﻿{
+  "$schema": "https://moddbcdn.vintagestory.at/schema/modinfo.latest.json",
+  "type": "Code",
+  "modid": "stainsstovetop",
+  "name": "Stain's Stovetop",
+  "authors": ["Stain"],
+  "contributors": ["Kevin C. (stove model from Kevin's Furniture)"],
+  "description": "A 4-burner coal/charcoal stovetop with vanilla firepit-style cooking GUI. Works standalone; when Kevin's Furniture is present, replaces his stove cooking behavior. Stove model adapted from Kevin's Furniture with credit. Uses the vanilla cooking pipeline so xSkills cooking XP applies.",
+  "version": "0.1.0-beta.1",
+  "dependencies": {
+    "game": "1.22.3",
+    "survival": "1.22.3"
+  }
+}

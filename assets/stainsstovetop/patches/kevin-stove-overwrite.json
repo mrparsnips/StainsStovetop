@@ -1,0 +1,37 @@
+[
+  {
+    "dependsOn": [{ "modid": "kevinsfurniture" }],
+    "file": "kevinsfurniture:blocktypes/stoveblock",
+    "op": "replace",
+    "path": "/class",
+    "value": "BlockStainsStove"
+  },
+  {
+    "dependsOn": [{ "modid": "kevinsfurniture" }],
+    "file": "kevinsfurniture:blocktypes/stoveblock",
+    "op": "replace",
+    "path": "/entityClass",
+    "value": "BlockEntityStainsStove"
+  },
+  {
+    "dependsOn": [{ "modid": "kevinsfurniture" }, { "modid": "xskills" }],
+    "file": "kevinsfurniture:blocktypes/stoveblock",
+    "op": "addmerge",
+    "path": "/entityBehaviors",
+    "value": [{ "name": "XskillsOwnable" }]
+  },
+  {
+    "dependsOn": [{ "modid": "kevinsfurniture" }, { "modid": "xskillsfork" }],
+    "file": "kevinsfurniture:blocktypes/stoveblock",
+    "op": "addmerge",
+    "path": "/entityBehaviors",
+    "value": [{ "name": "XskillsOwnable" }]
+  },
+  {
+    "dependsOn": [{ "modid": "kevinsfurniture" }],
+    "file": "stainsstovetop:recipes/grid/stove",
+    "op": "add",
+    "path": "/enabled",
+    "value": false
+  }
+]
