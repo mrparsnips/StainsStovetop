@@ -30,6 +30,7 @@ public class StovePotsRenderer : IRenderer
     private readonly BurnerVisual[] burners = new BurnerVisual[InventoryStainsStove.BurnerCount];
     private readonly ModelTransform defaultSpitTransform;
     private MultiTextureMeshRef? sharedSpitRodRef;
+    private bool disposed;
 
     public double RenderOrder => 0.5;
     public int RenderRange => 48;
@@ -53,6 +54,17 @@ public class StovePotsRenderer : IRenderer
     public void SetBurnerContents(int burner, ItemStack? stack, bool isInOutputSlot, float temperature, bool activelyCooking)
     {
         BurnerVisual vis = burners[burner];
+
+        // Always tear down on clear — do not rely on ContentKey equality (null==null skipped dispose).
+        if (stack == null)
+        {
+            SetCookingSoundVolume(vis, 0);
+            DisposeBurnerMeshes(vis);
+            vis.ContentKey = null;
+            vis.Temp = temperature;
+            return;
+        }
+
         string? key = StackKey(stack, isInOutputSlot, activelyCooking);
         if (key != vis.ContentKey)
         {
@@ -62,8 +74,7 @@ public class StovePotsRenderer : IRenderer
             vis.ActivelyCooking = activelyCooking;
             vis.IsSpitItem = false;
             vis.SpitTransform = null;
-            if (stack != null)
-                BuildMeshes(vis, stack, isInOutputSlot, activelyCooking);
+            BuildMeshes(vis, stack, isInOutputSlot, activelyCooking);
         }
 
         vis.Temp = temperature;
@@ -192,12 +203,24 @@ public class StovePotsRenderer : IRenderer
         prog.Stop();
     }
 
+    /// <summary>
+    /// FirepitContentsRenderer.Dispose: UnregisterRenderer then free meshes.
+    /// Must be idempotent — OnBlockRemoved + OnBlockUnloaded both call this.
+    /// Source: docs/research/_firepit_decompile/FirepitContentsRenderer.cs
+    /// </summary>
     public void Dispose()
     {
+        if (disposed) return;
+        disposed = true;
+
+        // Instance unregister (same as firepit) — registration name is for bookkeeping only.
+        capi.Event.UnregisterRenderer(this, EnumRenderStage.Opaque);
+
         for (int i = 0; i < burners.Length; i++)
         {
             SetCookingSoundVolume(burners[i], 0);
             DisposeBurnerMeshes(burners[i]);
+            burners[i].ContentKey = null;
         }
         sharedSpitRodRef?.Dispose();
         sharedSpitRodRef = null;

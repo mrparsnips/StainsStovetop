@@ -192,7 +192,19 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     }
 
     private void OnInventoryOpenedClaimOwnable(IPlayer player)
-        => XSkillsStoveCompat.TryClaimOwnable(this, player, AnyBurnerCooking());
+    {
+        XSkillsStoveCompat.TryClaimOwnable(this, player, AnyBurnerCooking());
+        // Temporary proof for Canteen Cook: slot type + MaxSlotStackSize after Owner claim.
+        if (Api == null) return;
+        ItemSlot cook0 = inventory.CookingSlots(0)[0];
+        Api.Logger.Notification(
+            "[stainsstovetop] GUI open {0}: cook0 type={1} MaxSlotStackSize={2} ownerClaimed={3} ({4})",
+            Pos,
+            cook0.GetType().FullName,
+            cook0.MaxSlotStackSize,
+            player.PlayerName,
+            Api.Side);
+    }
 
     private bool AnyBurnerCooking()
     {
@@ -654,37 +666,49 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     {
         if (IsBurning)
             Api.World.BlockAccessor.RemoveBlockLight(new byte[] { 7, 7, 11 }, Pos);
-        // Clear meshes before unregister — prevents floating pot after break.
-        ClearPotRenderers();
-        DisposeClientRenderers();
+        // Client break path is OnBlockRemoved (firepit). Keep this as belt-and-suspenders.
+        Api?.Logger.Notification("[stainsstovetop] OnBlockBroken {0} ({1})", Pos, Api.Side);
+        DisposeClientRenderers("OnBlockBroken");
         base.OnBlockBroken(byPlayer);
-        clientDialog?.TryClose();
-        clientDialog?.Dispose();
-        clientDialog = null;
+    }
+
+    /// <summary>
+    /// Client break/remove lifecycle. Firepit disposes its contents renderer here — NOT in
+    /// OnBlockBroken. Previous ghost-pot bug: we only cleaned in OnBlockBroken, which often
+    /// does not run on the client when the block is destroyed.
+    /// Source: docs/research/_firepit_decompile/BlockEntityFirepit.cs OnBlockRemoved
+    /// </summary>
+    public override void OnBlockRemoved()
+    {
+        Api?.Logger.Notification("[stainsstovetop] OnBlockRemoved {0} ({1})", Pos, Api?.Side);
+        DisposeClientRenderers("OnBlockRemoved");
+        base.OnBlockRemoved();
+        if (clientDialog != null)
+        {
+            clientDialog.TryClose();
+            clientDialog.Dispose();
+            clientDialog = null;
+        }
     }
 
     public override void OnBlockUnloaded()
     {
-        ClearPotRenderers();
-        DisposeClientRenderers();
+        Api?.Logger.Notification("[stainsstovetop] OnBlockUnloaded {0} ({1})", Pos, Api?.Side);
+        DisposeClientRenderers("OnBlockUnloaded");
         base.OnBlockUnloaded();
     }
 
-    private void ClearPotRenderers()
+    private void DisposeClientRenderers(string reason)
     {
         if (potsRenderer == null) return;
-        for (int b = 0; b < InventoryStainsStove.BurnerCount; b++)
-            potsRenderer.SetBurnerContents(b, null, false, 20, false);
-    }
 
-    private void DisposeClientRenderers()
-    {
-        if (Api is ICoreClientAPI capi && potsRenderer != null)
-        {
-            capi.Event.UnregisterRenderer(potsRenderer, EnumRenderStage.Opaque);
-            potsRenderer.Dispose();
-            potsRenderer = null;
-        }
+        Api?.Logger.Notification(
+            "[stainsstovetop] Dispose pot renderer at {0} via {1} ({2})",
+            Pos, reason, Api?.Side);
+
+        // StovePotsRenderer.Dispose unregisters (firepit parity) and frees meshes.
+        potsRenderer.Dispose();
+        potsRenderer = null;
     }
 
     public override void OnReceivedServerPacket(int packetid, byte[] data)
