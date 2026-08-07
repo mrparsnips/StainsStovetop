@@ -54,6 +54,8 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         base.Initialize(api);
         inventory.Pos = Pos;
         inventory.LateInitialize(InventoryClassName + "-" + Pos.X + "/" + Pos.Y + "/" + Pos.Z, api);
+        // Firepit: InventorySmeltingPatch hooks OnInventoryOpened to set Ownable.
+        inventory.OnInventoryOpened += OnInventoryOpenedClaimOwnable;
         for (int b = 0; b < InventoryStainsStove.BurnerCount; b++)
             inventory.UpdateCookingSlotsFromPot(b);
 
@@ -185,17 +187,27 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
                    && InventoryStainsStove.SafeItemAttributes(pot)!["allowHeating"].AsBool());
     }
 
+    private void OnInventoryOpenedClaimOwnable(IPlayer player)
+        => XSkillsStoveCompat.TryClaimOwnable(this, player, AnyBurnerCooking());
+
+    private bool AnyBurnerCooking()
+    {
+        for (int b = 0; b < InventoryStainsStove.BurnerCount; b++)
+            if (burnerCookingTime[b] > 0) return true;
+        return false;
+    }
+
     public bool CanSmeltInput(int burner)
     {
         ItemSlot potSlot = inventory.PotSlot(burner);
         ItemStack? pot = potSlot.Itemstack;
         if (pot == null) return false;
 
-        ISlotProvider provider = inventory.GetBurnerProvider(burner);
+        inventory.PrepareBurnerForSmelt(burner);
         pot.Collectible.OnSmeltAttempt(inventory);
 
         CombustibleProperties? props = pot.Collectible.GetCombustibleProperties(Api.World, pot, null);
-        return pot.Collectible.CanSmelt(Api.World, provider, pot, inventory.OutputSlot(burner).Itemstack)
+        return pot.Collectible.CanSmelt(Api.World, inventory, pot, inventory.OutputSlot(burner).Itemstack)
                && (props == null || !props.RequiresContainer);
     }
 
@@ -203,7 +215,10 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     {
         ItemSlot potSlot = inventory.PotSlot(burner);
         if (potSlot.Itemstack == null) return 30f;
-        return potSlot.Itemstack.Collectible.GetMeltingDuration(Api.World, inventory.GetBurnerProvider(burner), potSlot);
+        inventory.PrepareBurnerForSmelt(burner);
+        float baseTime = potSlot.Itemstack.Collectible.GetMeltingDuration(Api.World, inventory, potSlot);
+        // Firepit-only Harmony in xSkills; soft-apply Fast Food / Well Done here.
+        return baseTime * XSkillsStoveCompat.GetCookingTimeMultiplier(this);
     }
 
     public void HeatInput(int burner, float dt)
@@ -212,9 +227,9 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         ItemStack? pot = potSlot.Itemstack;
         if (pot == null) return;
 
-        ISlotProvider provider = inventory.GetBurnerProvider(burner);
+        inventory.PrepareBurnerForSmelt(burner);
         float oldTemp = GetBurnerTemp(burner);
-        float meltingPoint = pot.Collectible.GetMeltingPoint(Api.World, provider, potSlot);
+        float meltingPoint = pot.Collectible.GetMeltingPoint(Api.World, inventory, potSlot);
         float stackSize = Math.Max(1, pot.StackSize);
         float nowTemp = oldTemp;
 
@@ -284,7 +299,8 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         ItemStack? pot = potSlot.Itemstack;
         if (pot == null) return;
 
-        pot.Collectible.DoSmelt(Api.World, inventory.GetBurnerProvider(burner), potSlot, inventory.OutputSlot(burner));
+        inventory.PrepareBurnerForSmelt(burner);
+        pot.Collectible.DoSmelt(Api.World, inventory, potSlot, inventory.OutputSlot(burner));
         burnerCookingTime[burner] = 0;
         potSlot.MarkDirty();
         MarkDirty(true);
@@ -320,6 +336,9 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     {
         int box = blockSel.SelectionBoxIndex;
         ItemSlot hand = byPlayer.InventoryManager.ActiveHotbarSlot;
+
+        // Claim xSkills Ownable on any cook-relevant interact (server applies traits on DoSmelt).
+        XSkillsStoveCompat.TryClaimOwnable(this, byPlayer, AnyBurnerCooking());
 
         // Burner pads: place pot/food in-world, otherwise open cooking GUI for that burner (door stays shut).
         if (box >= 1 && box <= InventoryStainsStove.BurnerCount)
@@ -488,7 +507,10 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         string outputText = "";
         ItemStack? pot = inventory.PotSlot(b).Itemstack;
         if (pot?.Collectible is BlockCookingContainer bcc)
-            outputText = bcc.GetOutputText(Api.World, inventory.GetBurnerProvider(b), inventory.PotSlot(b)) ?? "";
+        {
+            inventory.PrepareBurnerForSmelt(b);
+            outputText = bcc.GetOutputText(Api.World, inventory, inventory.PotSlot(b)) ?? "";
+        }
         dialogTree.SetString("outputText", outputText);
     }
 
