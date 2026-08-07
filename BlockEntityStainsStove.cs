@@ -54,6 +54,9 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         base.Initialize(api);
         inventory.Pos = Pos;
         inventory.LateInitialize(InventoryClassName + "-" + Pos.X + "/" + Pos.Y + "/" + Pos.Z, api);
+        // Client blocktype patches often skip stove.json — add Ownable in code on both sides.
+        XSkillsStoveCompat.EnsureOwnableBehavior(this);
+        XSkillsStoveCompat.EnsureFirepitParitySlots(inventory);
         // Firepit: InventorySmeltingPatch hooks OnInventoryOpened to set Ownable.
         inventory.OnInventoryOpened += OnInventoryOpenedClaimOwnable;
         for (int b = 0; b < InventoryStainsStove.BurnerCount; b++)
@@ -75,7 +78,8 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
             int facing = Block.Attributes?["facing"]?.AsInt(0) ?? 0;
             potMatrices = StoveClientMeshes.GenPotMatrices(facing);
             potsRenderer = new StovePotsRenderer(capi, Pos, potMatrices);
-            capi.Event.RegisterRenderer(potsRenderer, EnumRenderStage.Opaque, "stainsstovepots");
+            // Unique name per BE — shared "stainsstovepots" left ghosts when other stoves existed.
+            capi.Event.RegisterRenderer(potsRenderer, EnumRenderStage.Opaque, "stainsstovepots-" + Pos);
             RegisterGameTickListener(OnClientTick, 50);
             UpdatePotRenderers();
         }
@@ -650,6 +654,8 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     {
         if (IsBurning)
             Api.World.BlockAccessor.RemoveBlockLight(new byte[] { 7, 7, 11 }, Pos);
+        // Clear meshes before unregister — prevents floating pot after break.
+        ClearPotRenderers();
         DisposeClientRenderers();
         base.OnBlockBroken(byPlayer);
         clientDialog?.TryClose();
@@ -659,8 +665,16 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
 
     public override void OnBlockUnloaded()
     {
+        ClearPotRenderers();
         DisposeClientRenderers();
         base.OnBlockUnloaded();
+    }
+
+    private void ClearPotRenderers()
+    {
+        if (potsRenderer == null) return;
+        for (int b = 0; b < InventoryStainsStove.BurnerCount; b++)
+            potsRenderer.SetBurnerContents(b, null, false, 20, false);
     }
 
     private void DisposeClientRenderers()
