@@ -77,11 +77,24 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
             clientMeshes = new StoveClientMeshes(capi);
             int facing = Block.Attributes?["facing"]?.AsInt(0) ?? 0;
             potMatrices = StoveClientMeshes.GenPotMatrices(facing);
-            potsRenderer = new StovePotsRenderer(capi, Pos, potMatrices);
-            // Unique name per BE — shared "stainsstovepots" left ghosts when other stoves existed.
-            capi.Event.RegisterRenderer(potsRenderer, EnumRenderStage.Opaque, "stainsstovepots-" + Pos);
-            RegisterGameTickListener(OnClientTick, 50);
-            UpdatePotRenderers();
+
+            // Break/sync can briefly recreate this BE after OnBlockBroken disposed the first
+            // renderer. Only register if we are still the live BE for this Pos.
+            if (api.World.BlockAccessor.GetBlockEntity(Pos) == this)
+            {
+                potsRenderer = new StovePotsRenderer(capi, Pos, potMatrices);
+                // Unique name per BE — shared "stainsstovepots" left ghosts across stoves.
+                string rendererName = "stainsstovepots-" + Pos;
+                capi.Event.RegisterRenderer(potsRenderer, EnumRenderStage.Opaque, rendererName);
+                api.Logger.Notification("[stainsstovetop] Registered pot renderer {0}", rendererName);
+                RegisterGameTickListener(OnClientTick, 50);
+                UpdatePotRenderers();
+            }
+            else
+            {
+                api.Logger.Notification(
+                    "[stainsstovetop] Skip pot renderer at {0} — not live BE (break/sync race)", Pos);
+            }
         }
     }
 
