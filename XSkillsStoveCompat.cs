@@ -1,16 +1,14 @@
 using System;
 using System.Reflection;
 using Vintagestory.API.Common;
+using Vintagestory.GameContent;
 
 namespace StainsStovetop;
 
 /// <summary>
-/// Soft integration with xSkills / xSkills Fork cooking Ownable + cook-time multipliers.
-/// No hard assembly reference — resolves types only when the mod is loaded.
-/// Contract: Fork <c>BlockCookingContainerPatch.DoSmeltPostfix</c> needs
-/// <c>ISlotProvider</c> that is also <see cref="InventoryBase"/> with <c>Pos</c>,
-/// plus <c>BlockEntityBehaviorOwnable.Owner</c> set (firepit: InventorySmelting.OnInvOpened).
-/// Source: xSkills Fork 1.0.82 CookingUtil / InventorySmeltingPatch / BlockEntityBehaviorOwnable.
+/// Soft parity with xSkills Fork's firepit cooking integration (no hard assembly ref).
+/// Mirrors InventorySmeltingPatch + BlockEntityFirepitPatch + CookingUtil Ownable contract.
+/// Source: xSkills Fork 1.0.82 decompiles under docs/research/_xskills_fork_1.0.82/.
 /// </summary>
 public static class XSkillsStoveCompat
 {
@@ -18,10 +16,66 @@ public static class XSkillsStoveCompat
     private static bool cookTimeMultResolved;
     private static PropertyInfo? ownableOwnerProp;
     private static bool ownableOwnerResolved;
+    private static Type? itemSlotCookingType;
+    private static Type? inputSlotType;
 
     /// <summary>
-    /// Firepit-equivalent: claim Ownable for the interacting player when idle or unowned.
-    /// Does not steal ownership while any burner is actively cooking.
+    /// Firepit after xSkills: slot 1 = <c>XSkills.InputSlot</c> (Ownable on ActivateSlot).
+    /// Without xSkills: vanilla <see cref="ItemSlotInput"/>.
+    /// </summary>
+    public static ItemSlot CreateInputSlot(InventoryBase inventory, int outputSlotId)
+    {
+        EnsureSlotTypesResolved(inventory.Api);
+        if (inputSlotType != null)
+        {
+            try
+            {
+                return (ItemSlot)Activator.CreateInstance(inputSlotType, inventory)!;
+            }
+            catch
+            {
+                inputSlotType = null;
+            }
+        }
+        return new ItemSlotInput(inventory, outputSlotId);
+    }
+
+    /// <summary>
+    /// Firepit after xSkills: slots 3–6 = <c>XSkills.ItemSlotCooking</c> (Canteen Cook stack size).
+    /// Without xSkills: vanilla <see cref="ItemSlotWatertight"/>.
+    /// </summary>
+    public static ItemSlot CreateCookingSlot(InventoryBase inventory)
+    {
+        EnsureSlotTypesResolved(inventory.Api);
+        if (itemSlotCookingType != null)
+        {
+            try
+            {
+                return (ItemSlot)Activator.CreateInstance(itemSlotCookingType, inventory)!;
+            }
+            catch
+            {
+                itemSlotCookingType = null;
+            }
+        }
+        return new ItemSlotWatertight(inventory, 6f);
+    }
+
+    private static void EnsureSlotTypesResolved(ICoreAPI? api)
+    {
+        if (itemSlotCookingType != null && inputSlotType != null)
+            return;
+
+        foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            itemSlotCookingType ??= asm.GetType("XSkills.ItemSlotCooking");
+            inputSlotType ??= asm.GetType("XSkills.InputSlot");
+            if (itemSlotCookingType != null && inputSlotType != null) break;
+        }
+    }
+
+    /// <summary>
+    /// InventorySmeltingPatch.OnInvOpened: set Ownable if null or not cooking.
     /// </summary>
     public static void TryClaimOwnable(BlockEntity be, IPlayer? player, bool anyBurnerCooking)
     {
@@ -49,7 +103,6 @@ public static class XSkillsStoveCompat
         if (ownableOwnerProp == null || !ownableOwnerProp.CanWrite) return;
 
         IPlayer? current = ownableOwnerProp.GetValue(beh) as IPlayer;
-        // Mirror InventorySmeltingPatch.OnInvOpened: set if null or not cooking.
         if (current != null && anyBurnerCooking) return;
 
         ownableOwnerProp.SetValue(beh, player);
@@ -57,8 +110,21 @@ public static class XSkillsStoveCompat
     }
 
     /// <summary>
-    /// Soft-call <c>XSkills.CookingUtil.GetCookingTimeMultiplier(BlockEntity)</c> (Fast Food / Well Done).
-    /// Returns 1 when xSkills is absent or reflection fails.
+    /// BlockEntityFirepitPatch.ContainsFood — cook-time mult only applies to food in the pot.
+    /// </summary>
+    public static bool ContainsFood(ItemStack? inputStack)
+    {
+        CollectibleObject? input = inputStack?.Collectible;
+        if (input == null) return false;
+
+        if (input is BlockCookingContainer || input is BlockBucket || input is BlockLiquidContainerBase)
+            return true;
+
+        return input.CombustibleProps?.SmeltedStack?.ResolvedItemstack?.Collectible?.NutritionProps != null;
+    }
+
+    /// <summary>
+    /// Soft-call <c>CookingUtil.GetCookingTimeMultiplier</c> (Fast Food / Well Done).
     /// </summary>
     public static float GetCookingTimeMultiplier(BlockEntity be)
     {

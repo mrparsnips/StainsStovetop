@@ -74,13 +74,15 @@ public class InventoryStainsStove : InventoryBase, ISlotProvider
 
         int burner = (i - 1) / SlotsPerBurner;
         int local = (i - 1) % SlotsPerBurner;
-        // Firepit input is ItemSlotInput(inventory, outputSlotId) — CanHold is output-stack
-        // compat only, not pot filter. Source: InventorySmelting / ItemSlotInput (VSSurvivalMod).
+        // Match firepit InventorySmelting + xSkills InventorySmeltingPatch.NewSlotPrefix:
+        // local0 input → InputSlot (xSkills) / ItemSlotInput (vanilla)
+        // local1 output → ItemSlotOutput
+        // local2–5 cook → ItemSlotCooking (xSkills) / ItemSlotWatertight (vanilla)
         return local switch
         {
-            0 => new ItemSlotInput(this, OutputIndex(burner)),
+            0 => XSkillsStoveCompat.CreateInputSlot(this, OutputIndex(burner)),
             1 => new ItemSlotOutput(this),
-            _ => new ItemSlotWatertight(this, 6f)
+            _ => XSkillsStoveCompat.CreateCookingSlot(this)
         };
     }
 
@@ -123,7 +125,11 @@ public class InventoryStainsStove : InventoryBase, ISlotProvider
         {
             cook.StorageType = (EnumItemStorageFlags)storageType;
             cook.MaxSlotStackSize = maxStack;
-            if (cook is ItemSlotWatertight wt) wt.capacityLitres = litres;
+            // Exact firepit InventorySmelting.updateStorageTypeFromContainer:
+            // capacityLitres from pot cookingSlotCapacityLitres (not MaxSlotStackSize).
+            // ItemSlotCooking.ActivateSlot later sets capacityLitres = MaxSlotStackSize when used.
+            if (cook is ItemSlotWatertight wt)
+                wt.capacityLitres = litres;
         }
     }
 

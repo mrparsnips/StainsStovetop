@@ -217,8 +217,10 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         if (potSlot.Itemstack == null) return 30f;
         inventory.PrepareBurnerForSmelt(burner);
         float baseTime = potSlot.Itemstack.Collectible.GetMeltingDuration(Api.World, inventory, potSlot);
-        // Firepit-only Harmony in xSkills; soft-apply Fast Food / Well Done here.
-        return baseTime * XSkillsStoveCompat.GetCookingTimeMultiplier(this);
+        // BlockEntityFirepitPatch.maxCookingTimePostfix: only multiply when ContainsFood.
+        if (XSkillsStoveCompat.ContainsFood(potSlot.Itemstack))
+            return baseTime * XSkillsStoveCompat.GetCookingTimeMultiplier(this);
+        return baseTime;
     }
 
     public void HeatInput(int burner, float dt)
