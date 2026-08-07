@@ -74,27 +74,17 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
 
         if (api is ICoreClientAPI capi)
         {
+            // Always register like BlockEntityFirepit.Initialize — GetBlockEntity(Pos)==this is
+            // often false during Initialize and previously skipped ALL pot renders.
+            // Source: docs/research/_firepit_decompile/BlockEntityFirepit.cs
             clientMeshes = new StoveClientMeshes(capi);
             int facing = Block.Attributes?["facing"]?.AsInt(0) ?? 0;
             potMatrices = StoveClientMeshes.GenPotMatrices(facing);
-
-            // Break/sync can briefly recreate this BE after OnBlockBroken disposed the first
-            // renderer. Only register if we are still the live BE for this Pos.
-            if (api.World.BlockAccessor.GetBlockEntity(Pos) == this)
-            {
-                potsRenderer = new StovePotsRenderer(capi, Pos, potMatrices);
-                // Unique name per BE — shared "stainsstovepots" left ghosts across stoves.
-                string rendererName = "stainsstovepots-" + Pos;
-                capi.Event.RegisterRenderer(potsRenderer, EnumRenderStage.Opaque, rendererName);
-                api.Logger.Notification("[stainsstovetop] Registered pot renderer {0}", rendererName);
-                RegisterGameTickListener(OnClientTick, 50);
-                UpdatePotRenderers();
-            }
-            else
-            {
-                api.Logger.Notification(
-                    "[stainsstovetop] Skip pot renderer at {0} — not live BE (break/sync race)", Pos);
-            }
+            potsRenderer = new StovePotsRenderer(capi, Pos, potMatrices);
+            // Unique name per BE (firepit uses shared "firepit"; multi-burner needs Pos).
+            capi.Event.RegisterRenderer(potsRenderer, EnumRenderStage.Opaque, "stainsstovepots-" + Pos);
+            RegisterGameTickListener(OnClientTick, 50);
+            UpdatePotRenderers();
         }
     }
 
@@ -207,11 +197,11 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     private void OnInventoryOpenedClaimOwnable(IPlayer player)
     {
         XSkillsStoveCompat.TryClaimOwnable(this, player, AnyBurnerCooking());
-        // Temporary proof for Canteen Cook: slot type + MaxSlotStackSize after Owner claim.
+        // Proof for Canteen Cook: slot type + MaxSlotStackSize after Owner claim.
         if (Api == null) return;
         ItemSlot cook0 = inventory.CookingSlots(0)[0];
         Api.Logger.Notification(
-            "[stainsstovetop] GUI open {0}: cook0 type={1} MaxSlotStackSize={2} ownerClaimed={3} ({4})",
+            "[stainsstovetop] GUI open {0}: cook0 type={1} MaxSlotStackSize={2} opener={3} ({4})",
             Pos,
             cook0.GetType().FullName,
             cook0.MaxSlotStackSize,
@@ -679,23 +669,21 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     {
         if (IsBurning)
             Api.World.BlockAccessor.RemoveBlockLight(new byte[] { 7, 7, 11 }, Pos);
-        // Client break path is OnBlockRemoved (firepit). Keep this as belt-and-suspenders.
-        Api?.Logger.Notification("[stainsstovetop] OnBlockBroken {0} ({1})", Pos, Api.Side);
-        DisposeClientRenderers("OnBlockBroken");
+        // Do NOT dispose the pot renderer here — firepit only cleans in OnBlockRemoved /
+        // OnBlockUnloaded. Disposing in OnBlockBroken raced with BE recreate and led to
+        // either ghosts or (with a bad Initialize guard) invisible pots.
+        // Source: docs/research/_firepit_decompile/BlockEntityFirepit.cs
         base.OnBlockBroken(byPlayer);
     }
 
     /// <summary>
-    /// Client break/remove lifecycle. Firepit disposes its contents renderer here — NOT in
-    /// OnBlockBroken. Previous ghost-pot bug: we only cleaned in OnBlockBroken, which often
-    /// does not run on the client when the block is destroyed.
+    /// Client break/remove lifecycle. Firepit disposes its contents renderer here.
     /// Source: docs/research/_firepit_decompile/BlockEntityFirepit.cs OnBlockRemoved
     /// </summary>
     public override void OnBlockRemoved()
     {
-        Api?.Logger.Notification("[stainsstovetop] OnBlockRemoved {0} ({1})", Pos, Api?.Side);
-        DisposeClientRenderers("OnBlockRemoved");
         base.OnBlockRemoved();
+        DisposeClientRenderers();
         if (clientDialog != null)
         {
             clientDialog.TryClose();
@@ -706,19 +694,13 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
 
     public override void OnBlockUnloaded()
     {
-        Api?.Logger.Notification("[stainsstovetop] OnBlockUnloaded {0} ({1})", Pos, Api?.Side);
-        DisposeClientRenderers("OnBlockUnloaded");
         base.OnBlockUnloaded();
+        DisposeClientRenderers();
     }
 
-    private void DisposeClientRenderers(string reason)
+    private void DisposeClientRenderers()
     {
         if (potsRenderer == null) return;
-
-        Api?.Logger.Notification(
-            "[stainsstovetop] Dispose pot renderer at {0} via {1} ({2})",
-            Pos, reason, Api?.Side);
-
         // StovePotsRenderer.Dispose unregisters (firepit parity) and frees meshes.
         potsRenderer.Dispose();
         potsRenderer = null;
