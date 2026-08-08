@@ -413,7 +413,27 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
             return true;
         }
 
-        // Door / window (body): open the firebox door + fuel GUI. Closing the GUI closes the door.
+        // Door / body: toggle firebox door. Opening also opens the fuel GUI; closing the
+        // GUI leaves the door open until the body is clicked again (furniture-style).
+        if (isDoorOpen)
+        {
+            isDoorOpen = false;
+            dialogOpenedFromWindow = false;
+            if (Api.Side == EnumAppSide.Client
+                && clientDialog != null
+                && clientDialog.IsOpened()
+                && clientDialog.FuelOnly)
+            {
+                clientDialog.TryClose();
+            }
+            Api.World.PlaySoundAt(new AssetLocation("sounds/block/chestclose"), byPlayer.Entity, byPlayer, true, 16);
+            MarkDirty(true);
+            return true;
+        }
+
+        isDoorOpen = true;
+        Api.World.PlaySoundAt(new AssetLocation("sounds/block/chestopen"), byPlayer.Entity, byPlayer, true, 16);
+        MarkDirty(true);
         OpenGui(byPlayer, 0, fromWindow: true);
         return true;
     }
@@ -473,11 +493,7 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
 
         openDialogBurner = focusBurner;
         dialogOpenedFromWindow = fromWindow;
-        if (fromWindow)
-        {
-            isDoorOpen = true;
-            MarkDirty(true);
-        }
+        // Door open state is toggled in OnInteract — do not couple to GUI lifetime.
 
         toggleInventoryDialogClient(byPlayer, () =>
         {
@@ -488,14 +504,9 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
             clientDialog.OnClosed += () =>
             {
                 clientDialog = null;
-                if (dialogOpenedFromWindow)
-                {
-                    isDoorOpen = false;
-                    dialogOpenedFromWindow = false;
-                }
-                MarkDirty(true);
+                dialogOpenedFromWindow = false;
+                // Leave isDoorOpen alone — door stays until body is clicked again.
             };
-            MarkDirty(true);
             return clientDialog;
         });
     }
