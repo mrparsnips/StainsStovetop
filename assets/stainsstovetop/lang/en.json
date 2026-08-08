@@ -10,7 +10,7 @@
   "blockhelp-placemeat": "Place meat/cookable (like firepit)",
   "blockhelp-cook": "Open cooking",
   "blockhelp-takepot": "Take pot or food",
-  "blockhelp-fueldoor": "Open firebox",
+  "blockhelp-fueldoor": "Open / close firebox",
   "info-temp": "Temperature: {0}°C",
   "info-burning": "Burning",
   "info-smoldering": "Hot enough to re-ignite fuel",

@@ -10,14 +10,20 @@ namespace StainsStovetop;
 /// <summary>
 /// Shared fuel + 4 burners. Each burner: pot, output, 4 cooking slots (firepit layout).
 /// Slot map: 0 fuel; burner b uses 1+b*6 .. 6+b*6 (pot, output, cook0-3).
+/// Implements <see cref="ISlotProvider"/> so xSkills <c>BlockCookingContainer.DoSmelt</c>
+/// postfixes can resolve Ownable via <c>cookingSlotsProvider is InventoryBase</c>
+/// (Fork CookingUtil.GetOwnerFromInventory). Set <see cref="ActiveBurnerForSmelt"/> first.
 /// </summary>
-public class InventoryStainsStove : InventoryBase
+public class InventoryStainsStove : InventoryBase, ISlotProvider
 {
     public const int BurnerCount = 4;
     public const int SlotsPerBurner = 6; // pot, output, 4 cooking
     public const int TotalSlots = 1 + BurnerCount *SlotsPerBurner;
 
     private readonly ItemSlot[] slots;
+
+    /// <summary>Burner whose cooking slots <see cref="Slots"/> exposes for DoSmelt / melting APIs.</summary>
+    public int ActiveBurnerForSmelt { get; set; }
 
     public InventoryStainsStove(string inventoryId, ICoreAPI? api) : base(inventoryId, api)
     {
@@ -36,11 +42,15 @@ public class InventoryStainsStove : InventoryBase
         return new[] { slots[start], slots[start + 1], slots[start + 2], slots[start + 3] };
     }
 
+    /// <inheritdoc />
+    public ItemSlot[] Slots => CookingSlots(GameMath.Clamp(ActiveBurnerForSmelt, 0, BurnerCount - 1));
+
     public static int PotIndex(int burner) => 1 + burner * SlotsPerBurner;
     public static int OutputIndex(int burner) => 2 + burner * SlotsPerBurner;
     public static int CookingStartIndex(int burner) => 3 + burner * SlotsPerBurner;
 
-    public BurnerSlotProvider GetBurnerProvider(int burner) => new(this, burner);
+    public void PrepareBurnerForSmelt(int burner)
+        => ActiveBurnerForSmelt = GameMath.Clamp(burner, 0, BurnerCount - 1);
 
     public override int Count => slots.Length;
 
@@ -64,13 +74,15 @@ public class InventoryStainsStove : InventoryBase
 
         int burner = (i - 1) / SlotsPerBurner;
         int local = (i - 1) % SlotsPerBurner;
-        // Firepit input is ItemSlotInput(inventory, outputSlotId) — CanHold is output-stack
-        // compat only, not pot filter. Source: InventorySmelting / ItemSlotInput (VSSurvivalMod).
+        // Match firepit InventorySmelting + xSkills InventorySmeltingPatch.NewSlotPrefix:
+        // local0 input → InputSlot (xSkills) / ItemSlotInput (vanilla)
+        // local1 output → ItemSlotOutput
+        // local2–5 cook → ItemSlotCooking (xSkills) / ItemSlotWatertight (vanilla)
         return local switch
         {
-            0 => new ItemSlotInput(this, OutputIndex(burner)),
+            0 => XSkillsStoveCompat.CreateInputSlot(this, OutputIndex(burner)),
             1 => new ItemSlotOutput(this),
-            _ => new ItemSlotWatertight(this, 6f)
+            _ => XSkillsStoveCompat.CreateCookingSlot(this)
         };
     }
 
@@ -113,7 +125,11 @@ public class InventoryStainsStove : InventoryBase
         {
             cook.StorageType = (EnumItemStorageFlags)storageType;
             cook.MaxSlotStackSize = maxStack;
-            if (cook is ItemSlotWatertight wt) wt.capacityLitres = litres;
+            // Exact firepit InventorySmelting.updateStorageTypeFromContainer:
+            // capacityLitres from pot cookingSlotCapacityLitres (not MaxSlotStackSize).
+            // ItemSlotCooking.ActivateSlot later sets capacityLitres = MaxSlotStackSize when used.
+            if (cook is ItemSlotWatertight wt)
+                wt.capacityLitres = litres;
         }
     }
 
@@ -162,19 +178,4 @@ public class InventoryStainsStove : InventoryBase
     {
         SlotsToTreeAttributes(slots, tree);
     }
-}
-
-/// <summary>ISlotProvider exposing one burner's cooking slots for BlockCookingContainer.DoSmelt.</summary>
-public class BurnerSlotProvider : ISlotProvider
-{
-    private readonly InventoryStainsStove inv;
-    private readonly int burner;
-
-    public BurnerSlotProvider(InventoryStainsStove inv, int burner)
-    {
-        this.inv = inv;
-        this.burner = burner;
-    }
-
-    public ItemSlot[] Slots => inv.CookingSlots(burner);
 }

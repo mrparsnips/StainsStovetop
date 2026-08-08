@@ -54,6 +54,11 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         base.Initialize(api);
         inventory.Pos = Pos;
         inventory.LateInitialize(InventoryClassName + "-" + Pos.X + "/" + Pos.Y + "/" + Pos.Z, api);
+        // Client blocktype patches often skip stove.json — add Ownable in code on both sides.
+        XSkillsStoveCompat.EnsureOwnableBehavior(this);
+        XSkillsStoveCompat.EnsureFirepitParitySlots(inventory);
+        // Firepit: InventorySmeltingPatch hooks OnInventoryOpened to set Ownable.
+        inventory.OnInventoryOpened += OnInventoryOpenedClaimOwnable;
         for (int b = 0; b < InventoryStainsStove.BurnerCount; b++)
             inventory.UpdateCookingSlotsFromPot(b);
 
@@ -69,11 +74,15 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
 
         if (api is ICoreClientAPI capi)
         {
+            // Always register like BlockEntityFirepit.Initialize — GetBlockEntity(Pos)==this is
+            // often false during Initialize and previously skipped ALL pot renders.
+            // Source: docs/research/_firepit_decompile/BlockEntityFirepit.cs
             clientMeshes = new StoveClientMeshes(capi);
             int facing = Block.Attributes?["facing"]?.AsInt(0) ?? 0;
             potMatrices = StoveClientMeshes.GenPotMatrices(facing);
             potsRenderer = new StovePotsRenderer(capi, Pos, potMatrices);
-            capi.Event.RegisterRenderer(potsRenderer, EnumRenderStage.Opaque, "stainsstovepots");
+            // Unique name per BE (firepit uses shared "firepit"; multi-burner needs Pos).
+            capi.Event.RegisterRenderer(potsRenderer, EnumRenderStage.Opaque, "stainsstovepots-" + Pos);
             RegisterGameTickListener(OnClientTick, 50);
             UpdatePotRenderers();
         }
@@ -185,17 +194,39 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
                    && InventoryStainsStove.SafeItemAttributes(pot)!["allowHeating"].AsBool());
     }
 
+    private void OnInventoryOpenedClaimOwnable(IPlayer player)
+    {
+        XSkillsStoveCompat.TryClaimOwnable(this, player, AnyBurnerCooking());
+        // Proof for Canteen Cook: slot type + MaxSlotStackSize after Owner claim.
+        if (Api == null) return;
+        ItemSlot cook0 = inventory.CookingSlots(0)[0];
+        Api.Logger.Notification(
+            "[stainsstovetop] GUI open {0}: cook0 type={1} MaxSlotStackSize={2} opener={3} ({4})",
+            Pos,
+            cook0.GetType().FullName,
+            cook0.MaxSlotStackSize,
+            player.PlayerName,
+            Api.Side);
+    }
+
+    private bool AnyBurnerCooking()
+    {
+        for (int b = 0; b < InventoryStainsStove.BurnerCount; b++)
+            if (burnerCookingTime[b] > 0) return true;
+        return false;
+    }
+
     public bool CanSmeltInput(int burner)
     {
         ItemSlot potSlot = inventory.PotSlot(burner);
         ItemStack? pot = potSlot.Itemstack;
         if (pot == null) return false;
 
-        ISlotProvider provider = inventory.GetBurnerProvider(burner);
+        inventory.PrepareBurnerForSmelt(burner);
         pot.Collectible.OnSmeltAttempt(inventory);
 
         CombustibleProperties? props = pot.Collectible.GetCombustibleProperties(Api.World, pot, null);
-        return pot.Collectible.CanSmelt(Api.World, provider, pot, inventory.OutputSlot(burner).Itemstack)
+        return pot.Collectible.CanSmelt(Api.World, inventory, pot, inventory.OutputSlot(burner).Itemstack)
                && (props == null || !props.RequiresContainer);
     }
 
@@ -203,7 +234,12 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     {
         ItemSlot potSlot = inventory.PotSlot(burner);
         if (potSlot.Itemstack == null) return 30f;
-        return potSlot.Itemstack.Collectible.GetMeltingDuration(Api.World, inventory.GetBurnerProvider(burner), potSlot);
+        inventory.PrepareBurnerForSmelt(burner);
+        float baseTime = potSlot.Itemstack.Collectible.GetMeltingDuration(Api.World, inventory, potSlot);
+        // BlockEntityFirepitPatch.maxCookingTimePostfix: only multiply when ContainsFood.
+        if (XSkillsStoveCompat.ContainsFood(potSlot.Itemstack))
+            return baseTime * XSkillsStoveCompat.GetCookingTimeMultiplier(this);
+        return baseTime;
     }
 
     public void HeatInput(int burner, float dt)
@@ -212,9 +248,9 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         ItemStack? pot = potSlot.Itemstack;
         if (pot == null) return;
 
-        ISlotProvider provider = inventory.GetBurnerProvider(burner);
+        inventory.PrepareBurnerForSmelt(burner);
         float oldTemp = GetBurnerTemp(burner);
-        float meltingPoint = pot.Collectible.GetMeltingPoint(Api.World, provider, potSlot);
+        float meltingPoint = pot.Collectible.GetMeltingPoint(Api.World, inventory, potSlot);
         float stackSize = Math.Max(1, pot.StackSize);
         float nowTemp = oldTemp;
 
@@ -284,7 +320,8 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         ItemStack? pot = potSlot.Itemstack;
         if (pot == null) return;
 
-        pot.Collectible.DoSmelt(Api.World, inventory.GetBurnerProvider(burner), potSlot, inventory.OutputSlot(burner));
+        inventory.PrepareBurnerForSmelt(burner);
+        pot.Collectible.DoSmelt(Api.World, inventory, potSlot, inventory.OutputSlot(burner));
         burnerCookingTime[burner] = 0;
         potSlot.MarkDirty();
         MarkDirty(true);
@@ -320,6 +357,9 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     {
         int box = blockSel.SelectionBoxIndex;
         ItemSlot hand = byPlayer.InventoryManager.ActiveHotbarSlot;
+
+        // Claim xSkills Ownable on any cook-relevant interact (server applies traits on DoSmelt).
+        XSkillsStoveCompat.TryClaimOwnable(this, byPlayer, AnyBurnerCooking());
 
         // Burner pads: place pot/food in-world, otherwise open cooking GUI for that burner (door stays shut).
         if (box >= 1 && box <= InventoryStainsStove.BurnerCount)
@@ -373,7 +413,27 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
             return true;
         }
 
-        // Door / window (body): open the firebox door + fuel GUI. Closing the GUI closes the door.
+        // Door / body: toggle firebox door. Opening also opens the fuel GUI; closing the
+        // GUI leaves the door open until the body is clicked again (furniture-style).
+        if (isDoorOpen)
+        {
+            isDoorOpen = false;
+            dialogOpenedFromWindow = false;
+            if (Api.Side == EnumAppSide.Client
+                && clientDialog != null
+                && clientDialog.IsOpened()
+                && clientDialog.FuelOnly)
+            {
+                clientDialog.TryClose();
+            }
+            Api.World.PlaySoundAt(new AssetLocation("sounds/block/chestclose"), byPlayer.Entity, byPlayer, true, 16);
+            MarkDirty(true);
+            return true;
+        }
+
+        isDoorOpen = true;
+        Api.World.PlaySoundAt(new AssetLocation("sounds/block/chestopen"), byPlayer.Entity, byPlayer, true, 16);
+        MarkDirty(true);
         OpenGui(byPlayer, 0, fromWindow: true);
         return true;
     }
@@ -433,11 +493,7 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
 
         openDialogBurner = focusBurner;
         dialogOpenedFromWindow = fromWindow;
-        if (fromWindow)
-        {
-            isDoorOpen = true;
-            MarkDirty(true);
-        }
+        // Door open state is toggled in OnInteract — do not couple to GUI lifetime.
 
         toggleInventoryDialogClient(byPlayer, () =>
         {
@@ -448,14 +504,9 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
             clientDialog.OnClosed += () =>
             {
                 clientDialog = null;
-                if (dialogOpenedFromWindow)
-                {
-                    isDoorOpen = false;
-                    dialogOpenedFromWindow = false;
-                }
-                MarkDirty(true);
+                dialogOpenedFromWindow = false;
+                // Leave isDoorOpen alone — door stays until body is clicked again.
             };
-            MarkDirty(true);
             return clientDialog;
         });
     }
@@ -488,7 +539,10 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
         string outputText = "";
         ItemStack? pot = inventory.PotSlot(b).Itemstack;
         if (pot?.Collectible is BlockCookingContainer bcc)
-            outputText = bcc.GetOutputText(Api.World, inventory.GetBurnerProvider(b), inventory.PotSlot(b)) ?? "";
+        {
+            inventory.PrepareBurnerForSmelt(b);
+            outputText = bcc.GetOutputText(Api.World, inventory, inventory.PotSlot(b)) ?? "";
+        }
         dialogTree.SetString("outputText", outputText);
     }
 
@@ -626,27 +680,41 @@ public class BlockEntityStainsStove : BlockEntityOpenableContainer, IHeatSource
     {
         if (IsBurning)
             Api.World.BlockAccessor.RemoveBlockLight(new byte[] { 7, 7, 11 }, Pos);
-        DisposeClientRenderers();
+        // Do NOT dispose the pot renderer here — firepit only cleans in OnBlockRemoved /
+        // OnBlockUnloaded. Disposing in OnBlockBroken raced with BE recreate and led to
+        // either ghosts or (with a bad Initialize guard) invisible pots.
+        // Source: docs/research/_firepit_decompile/BlockEntityFirepit.cs
         base.OnBlockBroken(byPlayer);
-        clientDialog?.TryClose();
-        clientDialog?.Dispose();
-        clientDialog = null;
+    }
+
+    /// <summary>
+    /// Client break/remove lifecycle. Firepit disposes its contents renderer here.
+    /// Source: docs/research/_firepit_decompile/BlockEntityFirepit.cs OnBlockRemoved
+    /// </summary>
+    public override void OnBlockRemoved()
+    {
+        base.OnBlockRemoved();
+        DisposeClientRenderers();
+        if (clientDialog != null)
+        {
+            clientDialog.TryClose();
+            clientDialog.Dispose();
+            clientDialog = null;
+        }
     }
 
     public override void OnBlockUnloaded()
     {
-        DisposeClientRenderers();
         base.OnBlockUnloaded();
+        DisposeClientRenderers();
     }
 
     private void DisposeClientRenderers()
     {
-        if (Api is ICoreClientAPI capi && potsRenderer != null)
-        {
-            capi.Event.UnregisterRenderer(potsRenderer, EnumRenderStage.Opaque);
-            potsRenderer.Dispose();
-            potsRenderer = null;
-        }
+        if (potsRenderer == null) return;
+        // StovePotsRenderer.Dispose unregisters (firepit parity) and frees meshes.
+        potsRenderer.Dispose();
+        potsRenderer = null;
     }
 
     public override void OnReceivedServerPacket(int packetid, byte[] data)
